@@ -1,0 +1,131 @@
+
+#dataset: https://www.kaggle.com/datasets/spscientist/students-performance-in-exams
+student.performance<-read.csv("StudentsPerformanceOriginal.csv")
+
+#check for any blanks or N/A
+if (any(is.na(student.performance)==TRUE)){
+  print ("Data is Missing")
+    }else{
+      print ("No Missing Data")
+    }
+
+#make parental level of education a factor
+is.factor(student.performance$parental.level.of.education) 
+student.performance$parental.level.of.education1<-factor(student.performance$
+        parental.level.of.education,levels=c("some high school","high school",
+                "some college", "associate's degree","bachelor's degree","master's degree"))
+
+
+#combined scores
+student.performance$combined.scores<-(student.performance$math.score+
+    student.performance$reading.score+student.performance$writing.score)/3
+
+#fail=1, pass=0
+student.performance$fail<-ifelse(student.performance$combined.scores < 60, 1, 0)
+is.numeric(student.performance$fail)
+
+#no college=1, college=0
+student.performance$no.college<-ifelse(student.performance$parental.level.of.education =="some college"| 
+                                         student.performance$parental.level.of.education =="bachelor's degree"|
+                                         student.performance$parental.level.of.education =="associate's degree"|
+                                         student.performance$parental.level.of.education =="master's degree", 0, 1)
+
+
+#make no college variable a factor
+is.factor(student.performance$no.college)
+student.performance$no.college1<-factor(student.performance$no.college, levels=c(0,1))
+
+#numerical summary
+library("plyr")
+ddply(student.performance, c("parental.level.of.education"), summarise,
+      N    = length(combined.scores),
+      mean = mean(combined.scores),
+      sd   = sd(combined.scores) )
+
+#graphical summary (boxplot)
+#light blue=no college, dark blue=some college
+boxplot(combined.scores~parental.level.of.education1, data=student.performance, 
+        main="Combined Test Score by Parental Education Level", xlab="Group",
+        ylab="Score", col=c("light blue","light blue", "dark blue",
+                            "dark blue", "dark blue", "dark blue", "dark blue"))
+
+#Do the scores vary by parental level of education
+compare_scores<-aov(combined.scores~parental.level.of.education1, data=student.performance) 
+summary(compare_scores)
+
+
+#At least two of the group means are significantly different from one another
+#pairwaise comparison
+pairwise.t.test(student.performance$combined.scores, 
+                student.performance$parental.level.of.education1, p.adj = "bonferroni")
+
+#There is divide in test scores btw those whose parents continued their education after high school and those whose parent's didnt
+#Combined the groups into two groups to compare: parents who did attnd college and those who didn't
+
+#students whose parents did not attend college
+student.high.school<-student.performance[student.performance$
+                                           parental.level.of.education == "some high school"|
+                                           student.performance$parental.level.of.education=="high school",]
+
+#students whose parents attended college
+student.college<-student.performance[student.performance$parental.level.of.education =="some college"| 
+          student.performance$parental.level.of.education =="bachelor's degree"|
+          student.performance$parental.level.of.education =="associate's degree"|
+          student.performance$parental.level.of.education =="master's degree",]
+
+#number of students whose parents did not attend college and who failed
+#no college/success
+success.high.school<-nrow(student.high.school[student.high.school$fail==1,])
+
+#number of students whose parents did attend college and who failed
+#college/success
+success.college<-nrow(student.college[student.college$fail==1,])
+
+#risk
+(success.high.school/nrow(student.high.school))-(success.college/nrow(student.college))
+
+#Difference in the proportion of individuals who failed the test for those whose parents attended college vs. those whose didn't?
+#prop test
+prop.test(c(success.high.school,success.college), c(nrow(student.high.school),
+      nrow(student.college)),alternative="two.sided", conf.level=.95, correct=FALSE)
+
+
+#Is there any association between whether an individual’s parents attended college and failing the test?
+#logistic regression
+association_parent_ed<-glm(student.performance$fail~student.performance$no.college1, family=binomial)
+summary(association_parent_ed)
+
+#odds ratio and 95% confidence interval 
+exp(cbind(OR = coef(association_parent_ed), confint.default(association_parent_ed)))
+
+
+#c-statistic
+library(pROC)
+student.performance$prob.fail<-predict(association_parent_ed,type=c("response"))  
+g <- roc(student.performance$fail~student.performance$prob.fail)
+g
+par(mfrow=c(1,1))
+plot(1-g$specificities, g$sensitivities, type = "l",
+     xlab = "1 - Specificity", ylab = "Sensitivity", main = "ROC Curve")
+abline(a=0,b=1)
+grid()
+
+
+
+#distribution of data
+par(mfrow=c(2,3))
+some.high.school<-student.performance[student.performance$parental.level.of.education == "some high school",]
+hist(some.high.school$combined.scores, main="Some High School", xlab="Test Score", xlim=c(0,100))
+high.school<-student.performance[student.performance$parental.level.of.education == "high school",]
+hist(high.school$combined.scores, main="High School", xlab="Test Score", xlim=c(0,100))
+some.college<-student.performance[student.performance$parental.level.of.education == "some college",]
+hist(some.college$combined.scores, main="Some College", xlab="Test Score", xlim=c(0,100))
+associates.degree<-student.performance[student.performance$parental.level.of.education == "associate's degree",]
+hist(associates.degree$combined.scores, main="Associate's Degree", xlab="Test Score", xlim=c(0,100))
+bachelors.degree<-student.performance[student.performance$parental.level.of.education == "bachelor's degree",]
+hist(bachelors.degree$combined.scores, main="Bachelor's Degree", xlab="Test Score", xlim=c(0,100))
+masters.degree<-student.performance[student.performance$parental.level.of.education == "master's degree",]
+hist(masters.degree$combined.scores, main="Master's Degree", xlab="Test Score",xlim=c(0,100))
+
+#Conclusion: there is significant evidence that there is an association between parent education level and an individual’s test score.  
+#Individuals whose parents attended college are less likely to fail than those whose parents did not.  
